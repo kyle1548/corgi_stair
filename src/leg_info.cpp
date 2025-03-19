@@ -3,7 +3,7 @@
 
 #include "leg_info.hpp"
 
-LegInfo::LegInfo(int leg_ID, std::array<double, 2> init_foothold, std::array<double, 2> CoM, double BL) : 
+LegInfo::LegInfo(int leg_ID, double BL) : 
     /* Initializer List */
     ID(leg_ID), 
     BL(BL), 
@@ -14,9 +14,7 @@ LegInfo::LegInfo(int leg_ID, std::array<double, 2> init_foothold, std::array<dou
     contact_alpha(0.0), 
     stair(0) 
 {
-    std::array<double, 2> hip_p = get_hip_position(CoM, 0.0);
-    foothold = {hip_p[0] + init_foothold[0], hip_p[1] + init_foothold[1]};
-    next_foothold = foothold;
+
 }//end LegInfo
 
 std::array<double, 2> LegInfo::get_hip_position(std::array<double, 2> CoM, double pitch) {

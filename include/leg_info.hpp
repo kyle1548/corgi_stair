@@ -5,7 +5,7 @@
 
 class LegInfo {
     public:
-        LegInfo(int leg_ID, std::array<double, 2> init_foothold, std::array<double, 2> CoM, double BL=0.444);
+        LegInfo(int leg_ID, double BL=0.444);
         std::array<double, 2> get_hip_position(std::array<double, 2> CoM, double pitch);
 
         int ID;
