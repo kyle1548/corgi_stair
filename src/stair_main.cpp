@@ -8,9 +8,10 @@
 #include "ros/ros.h"
 
 #include "corgi_msgs/MotorCmdStamped.h"
-#include "walk_gait.hpp"
 #include "leg_model.hpp"
 #include "bezier.hpp"
+#include "walk_gait.hpp"
+#include "stair_climb.hpp"
 
 #define INIT_THETA (M_PI*17.0/180.0)
 #define INIT_BETA (0.0)
@@ -39,28 +40,32 @@ int main(int argc, char** argv) {
     }//end for 
 
     /* Setting variable */
-    enum STATES {INIT, IDLE, TRANSFORM, WAIT, WALK, STAIR, END};
+    double D=0.27, H=0.12;
+    int stair_num = 3;
+    enum STATES {INIT, TRANSFORM, WAIT, WALK, STAIR, END};
     const double CoM_bias = 0.0;
     const int sampling_rate = 1000;
     const int transform_count = 5000; // 5s
     // double init_eta[8] = {1.7908786895256839, 0.7368824288764617, 1.1794001564068406, -0.07401410141135822, 1.1744876957173913, -1.8344700758454735e-15, 1.7909927830130310, 5.5466991499313485};
-    double init_eta[8] = {1.7695243267183387, 0.7277016876093340, 1.2151854401036246,  0.21018258666216960, 1.2151854401036246, -0.21018258666216960000, 1.7695243267183387, -0.727701687609334};   // normal
-    
-    
+    // double init_eta[8] = {1.7695243267183387, 0.7277016876093340, 1.2151854401036246,  0.21018258666216960, 1.2151854401036246, -0.21018258666216960000, 1.7695243267183387, -0.727701687609334};   // normal
+    double init_eta[8] = {1.8900999073259275, 0.5043376058303682, 1.6069784307289758, 0.13712110729189467, 1.6069784307289758, -0.13712110729189467, 1.8900999073259275, -0.5043376058303682};  // stand height 0.25, step length 0.3
+
     /* Initial variable */
     ros::Rate rate(sampling_rate);
     WalkGait walk_gait(true, CoM_bias, sampling_rate);
+    StairClimb stair_climb(true, CoM_bias, sampling_rate);
     std::array<std::array<double, 4>, 2> eta_list = {{{INIT_THETA, INIT_THETA, INIT_THETA, INIT_THETA},
-                                                      {INIT_BETA, INIT_BETA, INIT_BETA, INIT_BETA}}};   // init eta (wheel mode)
+                                                      {INIT_BETA , INIT_BETA , INIT_BETA , INIT_BETA }}};   // init eta (wheel mode)
     
     /* Other variable */
-    STATES state = INIT;
+    STATES state = INIT, last_state = INIT;
     double transform_ratio;
     bool trigger;
     int count;
 
     /* Behavior loop */
     auto start = std::chrono::high_resolution_clock::now();
+    walk_gait.set_stand_height(0.25);
     while (ros::ok()) {
         if (state == END) {
             break;
@@ -72,9 +77,6 @@ int main(int argc, char** argv) {
                 trigger = false;
                 count = 0;
                 break;
-            case IDLE:
-                state = WALK;
-                break;
             case TRANSFORM:
                 transform_ratio += 1.0 / transform_count;
                 for (int i=0; i<4; i++) {
@@ -84,8 +86,9 @@ int main(int argc, char** argv) {
                 }//end for
                 break;
             case WAIT:
-                walk_gait.initialize(init_eta);
-                std::cout << "Theta: " << eta_list[1][0] << " " << init_eta[1]  << std::endl;
+                if (last_state != state) {
+                    walk_gait.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
+                }//end if
                 trigger = true;
                 break;
             case WALK:
@@ -93,18 +96,23 @@ int main(int argc, char** argv) {
                 count ++;
                 break;
             case STAIR:
+                if (last_state != state) {
+                    stair_climb.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
+                    for (int i=0; i<stair_num; i++) {
+                        stair_climb.add_stair_edge(-D/2.0 + i*D, (i+1)*H);
+                    }//end for
+                }//end if
+                eta_list = stair_climb.step();
                 break;
             default:
                 break;
         }//end switch
+        last_state = state;
 
         // next state
         switch (state) {
             case INIT:
                 state = TRANSFORM;
-                break;
-            case IDLE:
-                state = WALK;
                 break;
             case TRANSFORM:
                 if (transform_ratio > 1.0) {
@@ -118,10 +126,16 @@ int main(int argc, char** argv) {
                 break;
             case WALK:
                 if (count > 10000) {
-                    state = END;
+                    std::array<int, 4> swing_phase = walk_gait.get_swing_phase();
+                    if (swing_phase[0] == 0 && swing_phase[1] == 0 && swing_phase[2] == 0 && swing_phase[3] == 0) {
+                        state = STAIR;
+                    }//end if
                 }//end if
                 break;
             case STAIR:
+                if (count > 10000) {
+                    state = END;
+                }//end if  
                 break;
             default:
                 break;
@@ -150,3 +164,4 @@ int main(int argc, char** argv) {
     ros::shutdown();
     return 0;
 }//end main
+
