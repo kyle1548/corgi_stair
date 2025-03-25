@@ -8,6 +8,8 @@
 #include "ros/ros.h"
 
 #include "corgi_msgs/MotorCmdStamped.h"
+#include "corgi_msgs/SimDataStamped.h"
+#include "corgi_msgs/TriggerStamped.h"
 #include "leg_model.hpp"
 #include "bezier.hpp"
 #include "walk_gait.hpp"
@@ -16,10 +18,18 @@
 #define INIT_THETA (M_PI*17.0/180.0)
 #define INIT_BETA (0.0)
 
+corgi_msgs::SimDataStamped sim_data;
+robot_cb(const corgi_msgs::SimDataStamped msg) {
+    sim_data = msg;
+}//end robot_cb
+
 int main(int argc, char** argv) {
     ros::init(argc, argv, "stair_climb");
     ros::NodeHandle nh;
     ros::Publisher motor_pub = nh.advertise<corgi_msgs::MotorCmdStamped>("motor/command", 1);
+    ros::Subscriber trigger_sub = nh.subscribe<corgi_msgs::TriggerStamped>("trigger", 1, nullptr);
+    ros::Subscriber robot_sub = nh.subscribe<corgi_msgs::SimDataStamped>("sim/data", 1, robot_cb);
+    corgi_msgs::TriggerStamped::ConstPtr trigger_msg;
     corgi_msgs::MotorCmdStamped motor_cmd;
     std::array<corgi_msgs::MotorCmd*, 4> motor_cmd_modules = {
         &motor_cmd.module_a,
@@ -67,6 +77,7 @@ int main(int argc, char** argv) {
     auto start = std::chrono::high_resolution_clock::now();
     walk_gait.set_stand_height(0.25);
     while (ros::ok()) {
+        ros::spinOnce();
         if (state == END) {
             break;
         }//end if
@@ -89,7 +100,10 @@ int main(int argc, char** argv) {
                 if (last_state != state) {
                     walk_gait.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
                 }//end if
-                trigger = true;
+                trigger_msg = ros::topic::getMessage<corgi_msgs::TriggerStamped>("trigger");
+                if (trigger_msg) {
+                    trigger = trigger_msg->enable;
+                }//end if
                 break;
             case WALK:
                 eta_list = walk_gait.step();
