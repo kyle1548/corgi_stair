@@ -13,7 +13,7 @@
 #include "leg_model.hpp"
 #include "bezier.hpp"
 #include "walk_gait.hpp"
-#include "stair_climb.hpp"
+// #include "stair_climb.hpp"
 
 #define INIT_THETA (M_PI*17.0/180.0)
 #define INIT_BETA (0.0)
@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
     /* Initial variable */
     ros::Rate rate(sampling_rate);
     WalkGait walk_gait(true, CoM_bias, sampling_rate);
-    StairClimb stair_climb(true, CoM_bias, sampling_rate);
+    // StairClimb stair_climb(true, CoM_bias, sampling_rate);
     std::array<std::array<double, 4>, 2> eta_list = {{{INIT_THETA, INIT_THETA, INIT_THETA, INIT_THETA},
                                                       {INIT_BETA , INIT_BETA , INIT_BETA , INIT_BETA }}};   // init eta (wheel mode)
     
@@ -113,13 +113,13 @@ int main(int argc, char** argv) {
                 count ++;
                 break;
             case STAIR:
-                if (last_state != state) {
-                    stair_climb.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
-                    for (int i=0; i<stair_num; i++) {
-                        stair_climb.add_stair_edge(-D/2.0 + i*D, (i+1)*H);
-                    }//end for
-                }//end if
-                eta_list = stair_climb.step();
+                // if (last_state != state) {
+                //     stair_climb.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
+                //     for (int i=0; i<stair_num; i++) {
+                //         stair_climb.add_stair_edge(-D/2.0 + i*D, (i+1)*H);
+                //     }//end for
+                // }//end if
+                // eta_list = stair_climb.step();
                 break;
             default:
                 break;
@@ -142,7 +142,7 @@ int main(int argc, char** argv) {
                 }//end if
                 break;
             case WALK:
-                if (count > 10000) {
+                if (sim_data.position.x > -0.5) {
                     std::array<int, 4> swing_phase = walk_gait.get_swing_phase();
                     if (walk_gait.if_touchdown() && (swing_phase[0]==1 || swing_phase[1]==1)) { // hind leg touched down (front leg start to swing)
                         state = STAIR;
