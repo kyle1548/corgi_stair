@@ -19,7 +19,7 @@
 #define INIT_BETA (0.0)
 
 corgi_msgs::SimDataStamped sim_data;
-void bot_cb(const corgi_msgs::SimDataStamped msg) {
+void robot_cb(const corgi_msgs::SimDataStamped msg) {
     sim_data = msg;
 }//end robot_cb
 
@@ -101,7 +101,8 @@ int main(int argc, char** argv) {
                 break;
             case WAIT:
                 if (last_state != state) {
-                    walk_gait.initialize({eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]});
+                    double current_eta[8] = {eta_list[0][0], -eta_list[1][0], eta_list[0][1], eta_list[1][1], eta_list[0][2], eta_list[1][2], eta_list[0][3], -eta_list[1][3]};
+                    walk_gait.initialize(current_eta);
                 }//end if
                 trigger_msg = ros::topic::getMessage<corgi_msgs::TriggerStamped>("trigger");
                 if (trigger_msg) {
