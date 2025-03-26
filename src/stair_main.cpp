@@ -75,7 +75,10 @@ int main(int argc, char** argv) {
 
     /* Behavior loop */
     auto start = std::chrono::high_resolution_clock::now();
+    walk_gait.set_velocity(0.1);
     walk_gait.set_stand_height(0.25);
+    walk_gait.set_step_length(0.3);
+    walk_gait.set_step_height(0.04);
     while (ros::ok()) {
         ros::spinOnce();
         if (state == END) {
@@ -141,7 +144,7 @@ int main(int argc, char** argv) {
             case WALK:
                 if (count > 10000) {
                     std::array<int, 4> swing_phase = walk_gait.get_swing_phase();
-                    if (swing_phase[0] == 0 && swing_phase[1] == 0 && swing_phase[2] == 0 && swing_phase[3] == 0) {
+                    if (walk_gait.if_touchdown() && (swing_phase[0]==1 || swing_phase[1]==1)) { // hind leg touched down (front leg start to swing)
                         state = STAIR;
                     }//end if
                 }//end if
