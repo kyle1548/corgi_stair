@@ -45,6 +45,8 @@ class StairClimb {
         double stand_height = 0.25;
         double step_length  = 0.3;
         double step_height  = 0.04;
+        double max_theta = 2.7348759382405214;  // rad, corresponding to leg length 0.34
+        double max_length = 0.34;  // rad, corresponding to leg length 0.34
         
         double min_margin;
         double max_velocity;
@@ -55,16 +57,18 @@ class StairClimb {
         std::array<double, 4> theta;
         std::array<double, 4> beta;
         std::array<double, 2> CoM;
+        std::array<std::array<double, 2>, 4> hip;
         std::array<std::array<double, 4>, 2> last_hip;
         double pitch;
         int swing_leg;
+        bool achieve_max_length;
 
         std::array<double, 2> result_eta;
         std::vector<std::array<double, 2>> stair_edge[4];
 
-
         enum STATES {MOVE_STABLE, SWING_SAME, SWING_NEXT, END};
         STATES state;
+        STATES last_state;
 
 };//end class StairClimb
 

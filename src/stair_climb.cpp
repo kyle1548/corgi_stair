@@ -71,11 +71,10 @@ void StairClimb::initialize(double init_eta[8]) {
 
 std::array<std::array<double, 4>, 2> StairClimb::step() {
     // state machine
+    bool if_change_state;
     switch (this->state) {
         case MOVE_STABLE:
-            if (!move_CoM_stable()) {
-                this->state = SWING_SAME;
-            }//end if
+            if_change_state = move_CoM_stable();
             break;
         case SWING_SAME:
             swing_same_step(leg_info, swing_leg, CoM, pitch, stairs_edge[swing_leg][1], stairs_edge[swing_leg][0]);
@@ -91,10 +90,14 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
         default:
             break;
     }//end switch
+    last_state = state;
 
     // next state
     switch (this->state) {
         case MOVE_STABLE:
+            if (if_change_state) {
+                state = SWING_SAME;
+            }//end if
             break;
         case SWING_SAME:
             break;
@@ -112,19 +115,33 @@ bool StairClimb::move_CoM_stable() {
     int move_dir = (leg_info[swing_leg].ID == 0 || leg_info[swing_leg].ID == 1) ? -1 : 1;
     std::array<double, 2> CoM_offset = { std::cos(pitch) * CoM_bias[0] - std::sin(pitch) * CoM_bias[1],
                                          std::sin(pitch) * CoM_bias[0] + std::cos(pitch) * CoM_bias[1] };
-    
-    // change velocity 
+    /* set current hip position as last hip position */
+    for (int i=0; i<4; i++) {
+        last_hip[i] = leg_info[i].get_hip_position(CoM, pitch);
+    }//end for
+    /* change velocity */
     if (move_dir * velocity[0] < max_velocity) {
         velocity[0] += move_dir * acc / rate;
     }//end if
     CoM[0] += velocity[0] / rate;
-    // leg command
+    /* calculate leg command */
     for (int i=0; i<4; i++) {
-        std::array<double, 2> next_hip = leg_info[i].get_hip_position(CoM, pitch);
-        result_eta = move_consider_edge(i);
+        if (i==swing_leg && achieve_max_length) {   // if achieve max leg length, let the leg's length to be fixed
+            leg_model.forward(theta[i], beta[i]);
+            if (!leg_info[i].contact_edge) {
+                CoM[1] += leg_model.G[1] + std::sqrt(max_length*max_length - std::pow(velocity[0]/rate - leg_model.G[0], 2));    // hip_y = last_hip_y + leg_model.G[1] + std::sqrt( max_length**2 - (hip_x - (last_hip_x + leg_model.G[0]))**2 ), hip_x - last_hip_x = velocity[0] / rate
+            }//end if
+        } else {
+            result_eta = move_consider_edge(i);
+        }//end if else
+        theta[i] = result_eta[0];
+        beta[i]  = result_eta[1];
     }//end for
-
-    // return if stable (entering support triangle)
+    /* check if achieve max leg length */
+    if (theta[swing_leg] >= max_theta) {
+        achieve_max_length = true;
+    }//end if
+    /* return if stable (entering support triangle) */
     if (move_dir * (CoM[0] + CoM_offset[0]) < move_dir * ((leg_info[(swing_leg+1)%4].foothold[0] + leg_info[(swing_leg-1)%4].foothold[0]) / 2) + stability_margin) {
         return false;
     } else {
