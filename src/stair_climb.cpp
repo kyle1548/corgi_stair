@@ -21,6 +21,7 @@ StairClimb::StairClimb(bool sim, std::array<double, 2> CoM_bias, int rate, doubl
 {
     // Initialize
     state = MOVE_STABLE;
+    last_state = MOVE_STABLE;
 }//end StairClimb
 
 void StairClimb::initialize(double init_eta[8]) {
@@ -62,6 +63,7 @@ void StairClimb::initialize(double init_eta[8]) {
         case 3: swing_count = 3; break;
         default: std::cout << "Error in determining first swing leg." << std::endl; break;
     }//end switch
+    init_move_CoM_stable(swing_sequence[swing_count % 4]);
     // Get foothold in world coordinate
     CoM = {0, stand_height};
     hip = {{{BL/2, stand_height} ,
@@ -77,30 +79,31 @@ void StairClimb::initialize(double init_eta[8]) {
 
 std::array<std::array<double, 4>, 2> StairClimb::step() {
     // state machine
-    bool if_finish_move = false;
+    bool finish_move = false;
     std::cout << "State:" << this->state << std::endl;
+    std::cout << "Swing leg:" << swing_leg << std::endl;
     switch (this->state) {
         case MOVE_STABLE:
             if (last_state != state) {
                 init_move_CoM_stable(swing_sequence[swing_count % 4]);
             }//end if
-            if_finish_move = move_CoM_stable();
+            finish_move = move_CoM_stable();
             break;
         case SWING_SAME:
             if (last_state != state) {
                 swing_leg = swing_sequence[swing_count % 4];
+                front_height = hip[0][1];
+                hind_height  = hip[3][1];
                 if (stair_edge[swing_leg].front().count == 0 && leg_info[swing_leg].next_up) {
                     if (swing_leg == 0 || swing_leg == 1) {
                         front_height = stand_height_on_stair_front;
-                        hind_height  = hip[3][1];
                     } else {
-                        front_height = hip[0][1];
                         hind_height  = stand_height_on_stair_hind;
                     }//end if else
                 }//end if
                 init_swing_same_step(swing_sequence[swing_count % 4], front_height, hind_height);
             }//end if
-            if_finish_move = swing_same_step();
+            finish_move = swing_same_step();
             break;
         case SWING_NEXT:
             if (last_state != state) {
@@ -126,7 +129,7 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
                 }//end if else
                 init_swing_next_step(swing_sequence[swing_count % 4], front_height, hind_height);
             }//end if
-            if_finish_move = swing_next_step();
+            finish_move = swing_next_step();
             break;
         default:
             break;
@@ -136,10 +139,9 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
     // next state
     switch (this->state) {
         case MOVE_STABLE:
-            if (if_finish_move) {
+            if (finish_move) {
                 bool up_stair = determine_next_foothold();
                 state = up_stair? SWING_NEXT : SWING_SAME;
-                if_change_stair = true;
                 bool have_stair = false;
                 for (int i=0; i<4; i++) {
                     if (!stair_edge[i].empty()) {
@@ -153,23 +155,21 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
             }//end if
             break;
         case SWING_SAME:
-            if (if_finish_move) {
+            if (finish_move) {
                 state = MOVE_STABLE;
-                if_change_stair = true;
                 leg_info[swing_leg].foothold = leg_info[swing_leg].next_foothold;
                 leg_info[swing_leg].contact_edge = false;
+                swing_count ++;
             }//end if
-            swing_count ++;
             break;
         case SWING_NEXT:
-            if (if_finish_move) {
+            if (finish_move) {
                 state = MOVE_STABLE;
-                if_change_stair = true;
                 stair_edge[swing_leg].erase(stair_edge[swing_leg].begin());
                 leg_info[swing_leg].foothold = leg_info[swing_leg].next_foothold;
                 leg_info[swing_leg].contact_edge = false;
+                swing_count ++;
             }//end if
-            swing_count ++;
             break;
         case END:
             std::cout << "End of stair climbing." << std::endl;
@@ -188,6 +188,10 @@ void StairClimb::add_stair_edge(double x, double y) {
     stair_edge[2].push_back({{x, y}, stair_count});
     stair_edge[3].push_back({{x, y}, stair_count});
 }//end add_stair_edge
+
+double StairClimb::get_pitch() {
+    return this->pitch;
+}//end get_pitch
 
 
 /* Private function */
