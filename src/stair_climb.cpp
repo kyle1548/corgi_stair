@@ -228,11 +228,17 @@ bool StairClimb::move_CoM_stable() {    // return true if stable, false if not
         achieve_max_length = true;
     }//end if
     /* return if stable (entering support triangle) */
-    if (move_dir * (CoM[0] + CoM_offset[0]) < move_dir * ((leg_info[(swing_leg+1)%4].foothold[0] + leg_info[(swing_leg-1)%4].foothold[0]) / 2) + stability_margin) {
-        return false;
-    } else {
+    if (move_dir * (get_foothold(theta[(swing_leg+1)%4], beta[(swing_leg+1)%4])[0] + get_foothold(theta[(swing_leg-1)%4], beta[(swing_leg-1)%4])[0]) / 2 < move_dir * CoM_offset[0] - stability_margin) {
         return true;
+    } else {
+        return false;
     }//end if else
+
+    // if (move_dir * (CoM[0] + CoM_offset[0]) < move_dir * ((leg_info[(swing_leg+1)%4].foothold[0] + leg_info[(swing_leg-1)%4].foothold[0]) / 2) + stability_margin) {
+    //     return false;
+    // } else {
+    //     return true;
+    // }//end if else
 }//end move_CoM_stable
 
 // void StairClimb::move_CoM_stable_smooth_fixed_leg_length(std::vector<LegInfo>& leg_info, int swing_leg, Eigen::Vector2d& CoM, double pitch) {
@@ -290,7 +296,6 @@ void StairClimb::init_swing_same_step(int swing_leg, double front_height, double
 
 bool StairClimb::swing_same_step() {  // return true if finish swinging, false if not
     this->update_hip();
-    step_count ++;
     if (velocity[0] < local_max_velocity) {
         velocity[0] += vel_incre;
     } else if (velocity[0] > local_max_velocity + vel_incre) {
@@ -301,6 +306,8 @@ bool StairClimb::swing_same_step() {  // return true if finish swinging, false i
     CoM[0] += velocity[0] / rate;
     CoM[1] += velocity[1] / rate;
     
+    std::cout << "front_height:" << this->front_height << std::endl;
+    std::cout << "hind_height:" << this->hind_height << std::endl;
     if (swing_leg == 0 || swing_leg == 1) {
         pitch = std::asin((CoM[1] - hind_height) / (BL / 2));
     } else {
@@ -320,6 +327,7 @@ bool StairClimb::swing_same_step() {  // return true if finish swinging, false i
         theta[i] = result_eta[0];
         beta[i]  = result_eta[1];
     }//end for
+    step_count ++;
     if (step_count==total_steps) {
         velocity[1] = 0.0;
         return true;
@@ -369,7 +377,6 @@ void StairClimb::init_swing_next_step(int swing_leg, double front_height, double
 
 bool StairClimb::swing_next_step() {  // return true if finish swinging, false if not
     this->update_hip();
-    step_count ++;
 
     if (velocity[0] > vel_incre) {
         velocity[0] -= vel_incre;
@@ -410,7 +417,7 @@ bool StairClimb::swing_next_step() {  // return true if finish swinging, false i
         theta[i] = result_eta[0];
         beta[i]  = result_eta[1];
     }//end for
-
+    step_count ++;
     if (step_count==total_steps) {
         velocity[1] = 0.0;
         return true;
@@ -540,9 +547,9 @@ bool StairClimb::determine_next_foothold() {
             double deepest_x = current_stair_edge[0] - keep_stair_d;
             double next_max_foothold_x = leg_info[swing_leg].get_hip_position(CoM, pitch)[0] + step_length / 2;
             if (next_max_foothold_x >= deepest_x) {
-                leg_info[swing_leg].next_foothold = {deepest_x, current_stair_edge[1]};
+                leg_info[swing_leg].next_foothold = {deepest_x, leg_info[swing_leg].foothold[1]};
             } else {
-                leg_info[swing_leg].next_foothold = {next_max_foothold_x, current_stair_edge[1]};
+                leg_info[swing_leg].next_foothold = {next_max_foothold_x, leg_info[swing_leg].foothold[1]};
             }//end if else
         }//end if
         // determine if next swing leg will swing up to next stair step
