@@ -193,6 +193,15 @@ double StairClimb::get_pitch() {
     return this->pitch;
 }//end get_pitch
 
+bool StairClimb::if_any_stair() {
+    for (int i=0; i<4; i++) {
+        if (!stair_edge[i].empty()) {
+            return true;
+        }//end if
+    }//end for
+    return false;
+}//end if_any_stair
+
 
 /* Private function */
 void StairClimb::init_move_CoM_stable(int swing_leg) { 
