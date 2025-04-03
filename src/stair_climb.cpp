@@ -66,10 +66,13 @@ void StairClimb::initialize(double init_eta[8]) {
     init_move_CoM_stable(swing_sequence[swing_count % 4]);
     // Get foothold in world coordinate
     CoM = {0, stand_height};
+    pitch = 0;
     hip = {{{BL/2, stand_height} ,
             {BL/2, stand_height} ,
             {-BL/2, stand_height},
             {-BL/2, stand_height}}};
+    front_height = stand_height;
+    hind_height  = stand_height;
     // Initial theta/beta
     for (int i=0; i<4; i++) {
         theta[i] = init_theta[i];
@@ -80,8 +83,6 @@ void StairClimb::initialize(double init_eta[8]) {
 std::array<std::array<double, 4>, 2> StairClimb::step() {
     // state machine
     bool finish_move = false;
-    std::cout << "State:" << this->state << std::endl;
-    std::cout << "Swing leg:" << swing_leg << std::endl;
     switch (this->state) {
         case MOVE_STABLE:
             if (last_state != state) {
@@ -92,14 +93,16 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
         case SWING_SAME:
             if (last_state != state) {
                 swing_leg = swing_sequence[swing_count % 4];
-                front_height = hip[0][1];
-                hind_height  = hip[3][1];
-                if (stair_edge[swing_leg].front().count == 0 && leg_info[swing_leg].next_up) {
-                    if (swing_leg == 0 || swing_leg == 1) {
-                        front_height = stand_height_on_stair_front;
-                    } else {
-                        hind_height  = stand_height_on_stair_hind;
-                    }//end if else
+                // front_height = hip[0][1];
+                // hind_height  = hip[3][1];
+                if (!stair_edge[swing_leg].empty()) {
+                    if (stair_edge[swing_leg].front().count == 1 && leg_info[swing_leg].next_up) {
+                        if (swing_leg == 0 || swing_leg == 1) {
+                            front_height = stand_height_on_stair_front;
+                        } else {
+                            hind_height  = stand_height_on_stair_hind;
+                        }//end if else
+                    }//end if
                 }//end if
                 init_swing_same_step(swing_sequence[swing_count % 4], front_height, hind_height);
             }//end if
@@ -108,24 +111,29 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
         case SWING_NEXT:
             if (last_state != state) {
                 swing_leg = swing_sequence[swing_count % 4];
+                // front_height = hip[0][1];
+                // hind_height  = hip[3][1];
+                this->is_clockwise = true;
                 if (swing_leg == 0 || swing_leg == 1) {
-                    if (stair_edge[0].front().count == stair_edge[1].front().count) {
-                        double stand_height_on_stair = stair_edge[swing_leg].size() >= 2? stand_height_on_stair_front : stand_height;
-                        front_height = stair_edge[swing_leg].front().edge[1] + stand_height_on_stair;
-                        hind_height  = hip[3][1];
+                    if (!stair_edge[0].empty() && !stair_edge[1].empty()) { // at most only one will be empty
+                        if (stair_edge[0].front().count != stair_edge[1].front().count) {
+                            double stand_height_on_stair = stair_edge[swing_leg].size() >= 2? stand_height_on_stair_front : stand_height;
+                            front_height = stair_edge[swing_leg].front().edge[1] + stand_height_on_stair;
+                            this->is_clockwise = false;
+                        }//end if
                     } else {
-                        front_height = hip[0][1];
-                        hind_height  = hip[3][1];
+                        front_height = stair_edge[swing_leg].front().edge[1] + stand_height;
                     }//end if else
                 } else {
-                    if (stair_edge[2].front().count == stair_edge[3].front().count) {
-                        double stand_height_on_stair = stair_edge[swing_leg].size() >= 2? stand_height_on_stair_hind : stand_height;
-                        front_height = hip[0][1];
-                        hind_height  = stair_edge[swing_leg].front().edge[1] + stand_height_on_stair;
+                    if (!stair_edge[2].empty() && !stair_edge[3].empty()) { // at most only one will be empty
+                        if (stair_edge[2].front().count != stair_edge[3].front().count) {
+                            double stand_height_on_stair = stair_edge[swing_leg].size() >= 2? stand_height_on_stair_hind : stand_height;
+                            hind_height = stair_edge[swing_leg].front().edge[1] + stand_height_on_stair;
+                            this->is_clockwise = false;
+                        }//end if
                     } else {
-                        front_height = hip[0][1];
-                        hind_height  = hip[3][1];
-                    }//end if else
+                        hind_height = stair_edge[swing_leg].front().edge[1] + stand_height;
+                    }//end if else  
                 }//end if else
                 init_swing_next_step(swing_sequence[swing_count % 4], front_height, hind_height);
             }//end if
@@ -134,6 +142,13 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
         default:
             break;
     }//end switch
+    if (last_state != state) {
+        std::cout << "State:" << this->state << std::endl;
+        std::cout << "Swing leg:" << swing_leg << std::endl;
+        std::cout << "next_foothold:" << leg_info[swing_leg].next_foothold[0] << ", " << leg_info[swing_leg].next_foothold[1] << std::endl;
+        std::cout << "front_height:" << this->front_height << std::endl;
+        std::cout << "hind_height:" << this->hind_height << std::endl;
+    }
     last_state = state;
 
     // next state
@@ -142,14 +157,7 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
             if (finish_move) {
                 bool up_stair = determine_next_foothold();
                 state = up_stair? SWING_NEXT : SWING_SAME;
-                bool have_stair = false;
-                for (int i=0; i<4; i++) {
-                    if (!stair_edge[i].empty()) {
-                        have_stair = true;
-                        break;
-                    }//end if
-                }//end for
-                if (!have_stair) {
+                if (!this->if_any_stair()) {
                     state = END;
                 }//end if
             }//end if
@@ -165,9 +173,10 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
         case SWING_NEXT:
             if (finish_move) {
                 state = MOVE_STABLE;
-                stair_edge[swing_leg].erase(stair_edge[swing_leg].begin());
+                leg_info[swing_leg].stair_count = stair_edge[swing_leg].front().count;
                 leg_info[swing_leg].foothold = leg_info[swing_leg].next_foothold;
                 leg_info[swing_leg].contact_edge = false;
+                stair_edge[swing_leg].erase(stair_edge[swing_leg].begin());
                 swing_count ++;
             }//end if
             break;
@@ -237,17 +246,16 @@ bool StairClimb::move_CoM_stable() {    // return true if stable, false if not
         achieve_max_length = true;
     }//end if
     /* return if stable (entering support triangle) */
-    if (move_dir * (get_foothold(theta[(swing_leg+1)%4], beta[(swing_leg+1)%4])[0] + get_foothold(theta[(swing_leg-1)%4], beta[(swing_leg-1)%4])[0]) / 2 < move_dir * CoM_offset[0] - stability_margin) {
+    // if (move_dir * (get_foothold(theta[(swing_leg+1)%4], beta[(swing_leg+1)%4])[0] + get_foothold(theta[(swing_leg+3)%4], beta[(swing_leg+3)%4])[0]) / 2 < move_dir * CoM_offset[0] - stability_margin) {
+    //     return true;
+    // } else {
+    //     return false;
+    // }//end if else
+    if (move_dir * (CoM[0] + CoM_offset[0]) > move_dir * ((leg_info[(swing_leg+1)%4].foothold[0] + leg_info[(swing_leg+3)%4].foothold[0]) / 2) + stability_margin) {
         return true;
     } else {
         return false;
     }//end if else
-
-    // if (move_dir * (CoM[0] + CoM_offset[0]) < move_dir * ((leg_info[(swing_leg+1)%4].foothold[0] + leg_info[(swing_leg-1)%4].foothold[0]) / 2) + stability_margin) {
-    //     return false;
-    // } else {
-    //     return true;
-    // }//end if else
 }//end move_CoM_stable
 
 // void StairClimb::move_CoM_stable_smooth_fixed_leg_length(std::vector<LegInfo>& leg_info, int swing_leg, Eigen::Vector2d& CoM, double pitch) {
@@ -285,7 +293,7 @@ bool StairClimb::move_CoM_stable() {    // return true if stable, false if not
 
 void StairClimb::init_swing_same_step(int swing_leg, double front_height, double hind_height) { 
     this->swing_leg = swing_leg;
-    this->margin_d = std::abs(CoM[0] - (leg_info[(swing_leg+1)%4].foothold[0]+leg_info[(swing_leg-1)%4].foothold[0])/2) - min_margin;
+    this->margin_d = std::abs(CoM[0] - (leg_info[(swing_leg+1)%4].foothold[0]+leg_info[(swing_leg+3)%4].foothold[0])/2) - min_margin;
     leg_model.forward(theta[swing_leg], beta[swing_leg]);
     std::array<double, 2> p_lo = {hip[swing_leg][0] + leg_model.G[0], hip[swing_leg][1] + leg_model.G[1]}; 
     std::array<double, 2> p_td = {leg_info[swing_leg].next_foothold[0], leg_info[swing_leg].next_foothold[1]+leg_model.r};
@@ -311,16 +319,14 @@ bool StairClimb::swing_same_step() {  // return true if finish swinging, false i
         velocity[0] -= vel_incre;
     }//end if else
     double t_ = (step_count+1.0) / rate;
-    velocity[1] = (t_ <= t_f_y) ? coeff_a * (t_*t_) + coeff_b * t_ : 0.0;
+    velocity[1] = (t_ <= t_f_y)? coeff_a * (t_*t_) + coeff_b * t_ : 0.0;
     CoM[0] += velocity[0] / rate;
     CoM[1] += velocity[1] / rate;
     
-    std::cout << "front_height:" << this->front_height << std::endl;
-    std::cout << "hind_height:" << this->hind_height << std::endl;
     if (swing_leg == 0 || swing_leg == 1) {
-        pitch = std::asin((CoM[1] - hind_height) / (BL / 2));
+        pitch = std::asin((CoM[1]-hind_height) / (BL/2));
     } else {
-        pitch = std::asin((front_height - CoM[1]) / (BL / 2));
+        pitch = std::asin((front_height-CoM[1]) / (BL/2));
     }//end if else
     
     for (int i=0; i<4; i++) {
@@ -347,7 +353,7 @@ bool StairClimb::swing_same_step() {  // return true if finish swinging, false i
 
 void StairClimb::init_swing_next_step(int swing_leg, double front_height, double hind_height) { 
     this->swing_leg = swing_leg;
-    this->is_clockwise = (swing_leg == 0 || swing_leg == 1)? (leg_info[0].stair == leg_info[1].stair) : (leg_info[2].stair == leg_info[3].stair);
+    // this->is_clockwise = (swing_leg == 0 || swing_leg == 1)? (stair_edge[0].front().count == stair_edge[1].front().count) : (stair_edge[2].front().count == stair_edge[3].front().count);
 
     double final_CoM_height = (front_height + hind_height) / 2;
     this->coeff_b = acc;
@@ -357,9 +363,13 @@ void StairClimb::init_swing_next_step(int swing_leg, double front_height, double
     this->t_f = is_clockwise? min_swing_time_cw : min_swing_time_ccw;
     this->total_steps = static_cast<int>(t_f * rate); // total steps for swinging
 
-    int sign_vel = velocity[0]>=0? 1 : -1;
-    std::array<double, 2> final_CoM = {CoM[0] + velocity[0]*t_f_x - sign_vel*acc*(t_f_x*t_f_x)/2, (front_height+hind_height)/2};
-    double final_pitch = std::asin((front_height-hind_height)/BL);
+    int sign_vel = velocity[0]>=0.0? 1 : -1;
+    this->init_CoM = CoM;
+    this->final_CoM = {CoM[0] + velocity[0]*t_f_x - sign_vel*acc*(t_f_x*t_f_x)/2, (front_height+hind_height)/2};
+    this->init_pitch = pitch;
+    this->final_pitch = std::asin((front_height-hind_height)/BL);
+    this->init_front_height = hip[0][1];
+    this->init_hind_height  = hip[3][1];
     this->final_hip = leg_info[swing_leg].get_hip_position(final_CoM, final_pitch);
 
     for (int i=0; i<3; i++) {
@@ -399,24 +409,28 @@ bool StairClimb::swing_next_step() {  // return true if finish swinging, false i
     CoM[0] += velocity[0] / rate;
     CoM[1] += velocity[1] / rate;
     
-    if (swing_leg == 0 || swing_leg == 1) {
-        pitch = std::asin((CoM[1] - hind_height) / (BL / 2));
-    } else {
-        pitch = std::asin((front_height - CoM[1]) / (BL / 2));
-    }//end if else
-    
+    // if (swing_leg == 0 || swing_leg == 1) {
+    //     pitch = std::asin((CoM[1]-hind_height) / (BL/2));
+    // } else {
+    //     pitch = std::asin((front_height-CoM[1]) / (BL/2));
+    // }//end if else
+    double CoM_up_ratio = (CoM[1] - init_CoM[1]) / (final_CoM[1] - init_CoM[1]);
+    double current_front_height = init_front_height + CoM_up_ratio*(front_height - init_front_height);
+    double current_hind_height  = init_hind_height  + CoM_up_ratio*(hind_height - init_hind_height);
+    pitch = std::asin((current_front_height-current_hind_height) / BL);
+
     for (int i=0; i<4; i++) {
         hip[i] = leg_info[i].get_hip_position(CoM, pitch);
         if (i == swing_leg) {
-            double swing_phase_ratio = (step_count+1.0) / total_steps;
             if (first_in) {
                 first_in = false;
                 leg_model.forward(theta[i], beta[i]);
                 std::array<double, 2> current_G = {hip[i][0] + leg_model.G[0], hip[i][1] + leg_model.G[1]};
                 leg_model.forward(final_theta, final_beta);
                 std::array<double, 2> final_G = {final_hip[0] + leg_model.G[0], final_hip[1] + leg_model.G[1]};
-                this->sp[i] = SwingProfile(current_G, final_G, step_height, 1);
+                this->sp[i] = SwingProfile(current_G, final_G, final_G[1]-current_G[1]+step_height, 1);
             }//end if
+            double swing_phase_ratio = (step_count+1.0) / total_steps;
             std::array<double, 2> curve_point = sp[i].getFootendPoint(swing_phase_ratio);
             std::array<double, 2> pos = {curve_point[0] - hip[i][0], curve_point[1] - hip[i][1]};
             result_eta = leg_model.inverse(pos, "G");
@@ -436,34 +450,37 @@ bool StairClimb::swing_next_step() {  // return true if finish swinging, false i
 }//end swing_next_step
 
 std::array<double, 2> StairClimb::move_consider_edge(int leg_ID, std::array<double, 2> move_vec) {
-    std::array<double, 2> current_stair_edge = stair_edge[leg_ID].back().edge;
-    leg_model.forward(theta[leg_ID], beta[leg_ID]);
-    double err = 0.01;
-    
-    std::array<double, 2> edge_U_vec = {hip[swing_leg][0]+leg_model.U_r[0]-current_stair_edge[0], hip[swing_leg][1]+leg_model.U_r[1]-current_stair_edge[1]};
-    if (!leg_info[leg_ID].contact_edge && (hip[swing_leg][0]+leg_model.U_r[0] <= current_stair_edge[0]) && (std::hypot(edge_U_vec[0], edge_U_vec[1]) <= leg_model.radius)) {
-        leg_info[leg_ID].contact_edge = true;
-        leg_model.forward(theta[leg_ID], beta[leg_ID], false);
-        std::complex<double> current_stair_edge_c(current_stair_edge[0], current_stair_edge[1]);
-        std::complex<double> hip_c(hip[swing_leg][0], hip[swing_leg][1]);
-        leg_info[leg_ID].contact_alpha = std::arg((current_stair_edge_c - hip_c - leg_model.U_r_c) / (leg_model.F_r_c-leg_model.U_r_c));
-    } else if (leg_info[leg_ID].contact_edge && (hip[swing_leg][0]+leg_model.U_r[0]>current_stair_edge[0] || std::hypot(edge_U_vec[0], edge_U_vec[1]) > leg_model.radius + err)) {
-        leg_info[leg_ID].contact_edge = false;
-    }//end if else
+    std::array<double, 2> current_stair_edge = {INFINITY, 0}; // [0] set very large to ensure execute correctly when the vector is empty.
+    if (!stair_edge[leg_ID].empty()) {
+        current_stair_edge = stair_edge[leg_ID].front().edge;
+        leg_model.forward(theta[leg_ID], beta[leg_ID]);
+        double err = 0.01;
+        
+        std::array<double, 2> edge_U_vec = {hip[leg_ID][0]+leg_model.U_r[0]-current_stair_edge[0], hip[leg_ID][1]+leg_model.U_r[1]-current_stair_edge[1]};
+        if (!leg_info[leg_ID].contact_edge && (hip[leg_ID][0]+leg_model.U_r[0] <= current_stair_edge[0]) && (std::hypot(edge_U_vec[0], edge_U_vec[1]) <= leg_model.radius)) {
+            leg_info[leg_ID].contact_edge = true;
+            leg_model.forward(theta[leg_ID], beta[leg_ID], false);
+            std::complex<double> current_stair_edge_c(current_stair_edge[0], current_stair_edge[1]);
+            std::complex<double> hip_c(hip[leg_ID][0], hip[leg_ID][1]);
+            leg_info[leg_ID].contact_alpha = std::arg((current_stair_edge_c - hip_c - leg_model.U_r_c) / (leg_model.F_r_c-leg_model.U_r_c));
+        } else if (leg_info[leg_ID].contact_edge && (hip[leg_ID][0]+leg_model.U_r[0]>current_stair_edge[0] || std::hypot(edge_U_vec[0], edge_U_vec[1]) > leg_model.radius + err)) {
+            leg_info[leg_ID].contact_edge = false;
+        }//end if else
+    }//end if
     
     if (leg_info[leg_ID].contact_edge) {
-        result_eta = move_edge(leg_ID, {current_stair_edge[0]-hip[swing_leg][0], current_stair_edge[1]-hip[swing_leg][1]}, leg_info[leg_ID].contact_alpha);
+        result_eta = move_edge(leg_ID, {current_stair_edge[0]-hip[leg_ID][0], current_stair_edge[1]-hip[leg_ID][1]}, leg_info[leg_ID].contact_alpha);
         leg_info[leg_ID].foothold = {current_stair_edge[0], current_stair_edge[1]};
     } else {
         std::array<double, 2> relative_foothold;
-        if (hip[swing_leg][0] + leg_model.U_r[0] > current_stair_edge[0]) {
-            result_eta = leg_model.move(theta[leg_ID], beta[leg_ID], move_vec, true, false);
-            relative_foothold = get_foothold(theta[swing_leg], beta[swing_leg], 5);
+        if (hip[leg_ID][0] + leg_model.U_r[0] > current_stair_edge[0]) {
+            result_eta = leg_model.move(theta[leg_ID], beta[leg_ID], move_vec, 0.0, true, false);
+            relative_foothold = get_foothold(theta[leg_ID], beta[leg_ID], 5);
         } else {
-            result_eta = leg_model.move(theta[leg_ID], beta[leg_ID], move_vec, false);
-            relative_foothold = get_foothold(theta[swing_leg], beta[swing_leg]);
+            result_eta = leg_model.move(theta[leg_ID], beta[leg_ID], move_vec, 0.0, false);
+            relative_foothold = get_foothold(theta[leg_ID], beta[leg_ID]);
         }//end if else
-        leg_info[swing_leg].foothold = {hip[swing_leg][0] + relative_foothold[0], hip[swing_leg][1] + relative_foothold[1]};
+        leg_info[leg_ID].foothold = {hip[leg_ID][0] + relative_foothold[0], hip[leg_ID][1] + relative_foothold[1]};
     }//end if else
 
     return result_eta;
@@ -498,7 +515,7 @@ std::array<double, 2> StairClimb::move_edge(int leg_ID, std::array<double, 2> co
         guess_dx += dx;
 
         if (iter == max_iter-1) {
-            throw std::runtime_error("Newton solver did not converge.");
+            throw std::runtime_error("Move_edge: Newton solver did not converge.");
         }//end if
     }//end for
 
@@ -522,17 +539,16 @@ double StairClimb::objective_edge(double d_x, std::array<double, 2> init_U, std:
 bool StairClimb::determine_next_foothold() {
     bool up_stair = false;
     std::array<double, 2> current_stair_edge;
-    int current_stair_count;
+    int current_stair_count = leg_info[swing_leg].stair_count;
     int next_stair = 0;
     double keep_stair_d = (swing_leg < 2) ? keep_stair_distance_front : keep_stair_distance_hind;
 
     if (!stair_edge[swing_leg].empty()) {
         current_stair_edge  = stair_edge[swing_leg].front().edge;
-        current_stair_count = stair_edge[swing_leg].front().count;
         if ((leg_info[swing_leg].next_up || leg_info[ other_side_leg[swing_leg][1] ].next_up) &&
-        (current_stair_count + 1 < stair_edge[ other_side_leg[swing_leg][0] ].front().count || leg_info[ other_side_leg[swing_leg][0] ].one_step || swing_leg < 2)) {
+        (swing_leg < 2 || leg_info[other_side_leg[swing_leg][0]].one_step  || current_stair_count + 1 < leg_info[other_side_leg[swing_leg][0]].stair_count)) {
             leg_info[swing_leg].next_up = false;
-            if (current_stair_count == stair_edge[ other_side_leg[swing_leg][1] ].front().count) {    //first swing leg
+            if (current_stair_count == leg_info[other_side_leg[swing_leg][1]].stair_count) {    //first swing leg
                 leg_info[swing_leg].one_step = false;
                 leg_info[swing_leg].next_foothold = {current_stair_edge[0] + keep_edge_distance, current_stair_edge[1]};
             } else {    //second swing leg
@@ -543,10 +559,11 @@ bool StairClimb::determine_next_foothold() {
                 } else {
                     deepest_x = INFINITY;
                 }//end if else
-                if (leg_info[swing_leg].get_hip_position(CoM, pitch)[0] + step_length_up_stair / 2 >= deepest_x) {
+                double next_max_foothold_x = leg_info[swing_leg].get_hip_position(CoM, pitch)[0] + step_length_up_stair / 2;
+                if (next_max_foothold_x >= deepest_x) {
                     leg_info[swing_leg].next_foothold = {deepest_x, current_stair_edge[1]};
                 } else {
-                    leg_info[swing_leg].next_foothold = {leg_info[swing_leg].get_hip_position(CoM, pitch)[0] + step_length_up_stair / 2, current_stair_edge[1]};
+                    leg_info[swing_leg].next_foothold = {next_max_foothold_x, current_stair_edge[1]};
                 }//end if else
             }//end if else
             up_stair = true;
@@ -562,7 +579,7 @@ bool StairClimb::determine_next_foothold() {
             }//end if else
         }//end if
         // determine if next swing leg will swing up to next stair step
-        if (leg_info[swing_leg].next_foothold[0] >= stair_edge[swing_leg][next_stair].edge[0] - keep_stair_distance_all) {
+        if (stair_edge[swing_leg].size() > next_stair && leg_info[swing_leg].next_foothold[0] >= stair_edge[swing_leg][next_stair].edge[0] - keep_stair_distance_all) {
             leg_info[swing_leg].next_up = true;
         }//end if
     } else {    // move on the upper ground
