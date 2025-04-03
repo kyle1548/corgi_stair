@@ -150,14 +150,21 @@ int main(int argc, char** argv) {
                 break;
             case WALK:
                 /* Position feedback in Webots */
-                double hip_x = sim_data.position.x + 0.222;
-                if ( -D/2.0 - 0.35 - hip_x <= 0.3 ) {   // first stair edge - keep_d - front hip pos < max step length
-                    walk_gait.set_step_length((-D/2.0 - 0.35 - hip_x)/(0.2+0.4)); // step_length*(swing_phase + (1-swing_phase)/2) = foothold_x - hip_x
-                    std::array<int, 4> swing_phase = walk_gait.get_swing_phase();
-                    if (walk_gait.if_touchdown() && (swing_phase[0]==1 || swing_phase[1]==1)) { // hind leg touched down (front leg start to swing)
+                // double hip_x = sim_data.position.x + 0.222;
+                // if ( -D/2.0 - 0.35 - hip_x <= 0.3 ) {   // first stair edge - keep_d - front hip pos < max step length
+                //     walk_gait.set_step_length((-D/2.0 - 0.35 - hip_x)/(0.2+0.4)); // step_length*(swing_phase + (1-swing_phase)/2) = foothold_x - hip_x
+                //     std::array<int, 4> swing_phase = walk_gait.get_swing_phase();
+                //     if (walk_gait.if_touchdown() && (swing_phase[0]==1 || swing_phase[1]==1)) { // hind leg touched down (front leg start to swing)
+                //         state = STAIR;
+                //     }//end if
+                // }//end if
+                if (walk_gait.if_touchdown() && (swing_phase[0]==1 || swing_phase[1]==1)) { // hind leg touched down (front leg start to swing)
+                    double hip_x = sim_data.position.x + 0.222;
+                    if (hip_x + 0.15 >= -D/2.0) {  
                         state = STAIR;
                     }//end if
                 }//end if
+
                 break;
             case STAIR:
                 if (!stair_climb.if_any_stair()) {
