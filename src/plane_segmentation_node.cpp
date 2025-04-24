@@ -2,90 +2,75 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/filters/extract_indices.h>
 #include <pcl/features/integral_image_normal.h>
 #include <pcl/segmentation/organized_multi_plane_segmentation.h>
-#include <pcl/segmentation/planar_region.h>
-#include <pcl/filters/extract_indices.h>
-#include <pcl/common/common.h>
-#include <pcl/common/io.h>
+#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/filters/passthrough.h>
+
+typedef pcl::PointXYZRGB PointT;
 
 ros::Publisher pub;
 
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 {
-    // Step 1: 轉換為有序點雲
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
     pcl::fromROSMsg(*input, *cloud);
 
     if (!cloud->isOrganized())
     {
-        ROS_WARN("點雲不是有序的，無法使用此方法");
+        ROS_WARN("Point cloud is not organized. Skipping frame.");
         return;
     }
 
-    // Step 2: 使用積分影像快速估算法向量
+    // Estimate normals
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
-    pcl::IntegralImageNormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+    pcl::IntegralImageNormalEstimation<PointT, pcl::Normal> ne;
     ne.setNormalEstimationMethod(ne.AVERAGE_3D_GRADIENT);
-    ne.setMaxDepthChangeFactor(0.02f);  // 深度變化容忍度
-    ne.setNormalSmoothingSize(10.0f);   // 法向量平滑區域
+    ne.setMaxDepthChangeFactor(0.05f);
+    ne.setNormalSmoothingSize(5.0f);
     ne.setInputCloud(cloud);
     ne.compute(*normals);
 
-    // Step 3: 使用多平面分割演算法
-    pcl::OrganizedMultiPlaneSegmentation<pcl::PointXYZRGB, pcl::Normal, pcl::Label> mps;
-    mps.setMinInliers(1000);
-    mps.setAngularThreshold(0.017453 * 2.0); // 2 degrees
+    // Plane segmentation
+    pcl::OrganizedMultiPlaneSegmentation<PointT, pcl::Normal, pcl::Label> mps;
+    mps.setMinInliers(50);
+    mps.setAngularThreshold(0.017453 * 2.0); // 2 degrees in radians
     mps.setDistanceThreshold(0.02);          // 2cm
     mps.setInputCloud(cloud);
     mps.setInputNormals(normals);
 
-    std::vector<pcl::PlanarRegion<pcl::PointXYZRGB>> regions;
-    mps.segmentAndRefine(regions);
+    std::vector<pcl::PlanarRegion<PointT>, Eigen::aligned_allocator<pcl::PlanarRegion<PointT>>> regions;
+    mps.segment(regions); // 原始版本僅需 regions，無需 refine
 
-    // Step 4: 將平面合併後輸出，每個平面用不同顏色標記
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr output(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PointCloud<PointT>::Ptr all_planes(new pcl::PointCloud<PointT>);
+
     for (size_t i = 0; i < regions.size(); ++i)
     {
-        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
-        inliers->indices = regions[i].getIndices();
+        const pcl::PlanarRegion<PointT>& region = regions[i];
+        pcl::PointCloud<PointT> contour;
+        contour.points = region.getContour();
+        contour.width = contour.points.size();
+        contour.height = 1;
+        contour.is_dense = true;
 
-        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr plane(new pcl::PointCloud<pcl::PointXYZRGB>);
-        extract.setInputCloud(cloud);
-        extract.setIndices(inliers);
-        extract.setNegative(false);
-        extract.filter(*plane);
-
-        // 為每個平面指定不同的顏色
-        uint8_t r = static_cast<uint8_t>(rand() % 256);
-        uint8_t g = static_cast<uint8_t>(rand() % 256);
-        uint8_t b = static_cast<uint8_t>(rand() % 256);
-        for (auto& point : plane->points)
-        {
-            point.r = r;
-            point.g = g;
-            point.b = b;
-        }
-
-        *output += *plane;
+        *all_planes += contour; // 合併所有輪廓到一起
     }
 
-    sensor_msgs::PointCloud2 out_msg;
-    pcl::toROSMsg(*output, out_msg);
-    out_msg.header = input->header;
-    pub.publish(out_msg);
+    // 發布結果
+    sensor_msgs::PointCloud2 output;
+    pcl::toROSMsg(*all_planes, output);
+    output.header = input->header;
+    pub.publish(output);
 }
 
 int main(int argc, char** argv)
 {
     ros::init(argc, argv, "multi_plane_segmentation_node");
     ros::NodeHandle nh;
-
-    pub = nh.advertise<sensor_msgs::PointCloud2>("segmented_planes", 1);
     ros::Subscriber sub = nh.subscribe("/zedxm/zed_node/point_cloud/cloud_registered", 1, cloudCallback);
-
+    pub = nh.advertise<sensor_msgs::PointCloud2>("multi_plane_segmentation", 1);
     ros::spin();
     return 0;
 }
