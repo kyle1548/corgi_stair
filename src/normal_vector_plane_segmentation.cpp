@@ -12,13 +12,18 @@
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/filters/passthrough.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <pcl/features/normal_3d.h>
 #include <unordered_map>
 #include <random>
 
+#define INTERGRAL_IMAGE_NORMAL_ESTIMATION 1
+
 typedef pcl::PointXYZRGB PointT;
+typedef pcl::PointXYZ PointT_no_color;
 
 ros::Publisher pub;
 ros::Publisher normal_pub;
+
 
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 {
@@ -52,18 +57,29 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
 
     // Estimate normals
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
+    #if INTERGRAL_IMAGE_NORMAL_ESTIMATION
     pcl::IntegralImageNormalEstimation<PointT, pcl::Normal> ne;
     // ne.setNormalEstimationMethod(ne.AVERAGE_3D_GRADIENT);
     // ne.setNormalEstimationMethod(ne.AVERAGE_DEPTH_CHANGE);
     ne.setNormalEstimationMethod(ne.COVARIANCE_MATRIX);
-    ne.setMaxDepthChangeFactor(0.05f);
-    ne.setNormalSmoothingSize(15.0f);
+    ne.setMaxDepthChangeFactor(0.10f);
+    ne.setNormalSmoothingSize(10.0f);
     ne.setInputCloud(cloud);
     ne.compute(*normals);
+    #else // too slow
+    pcl::PointCloud<PointT_no_color>::Ptr cloud_no_color(new pcl::PointCloud<PointT_no_color>);
+    pcl::fromROSMsg(*input, *cloud_no_color);
+    pcl::NormalEstimation<PointT_no_color, pcl::Normal> ne;
+    pcl::search::KdTree<PointT_no_color>::Ptr tree(new pcl::search::KdTree<PointT_no_color>);
+    ne.setInputCloud(cloud_no_color);
+    ne.setSearchMethod(tree);
+    ne.setRadiusSearch(0.03); // 設置搜索半徑
+    ne.compute(*normals);
+    #endif
 
     // Plane segmentation
     pcl::OrganizedMultiPlaneSegmentation<PointT, pcl::Normal, pcl::Label> mps;
-    mps.setMinInliers(50);
+    mps.setMinInliers(10);
     mps.setAngularThreshold(0.017453 * 20.0); // 20 degrees in radians
     mps.setDistanceThreshold(0.05);          // 2cm
     mps.setInputCloud(cloud);
@@ -80,7 +96,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     mps.segmentAndRefine(regions, model_coefficients, inlier_indices, labels, label_indices, boundary_indices);
 
     // 隨機顏色產生器
-    bool random_color = true;
+    bool random_color = false;
     std::mt19937 rng;
     rng.seed(std::random_device()());
     std::uniform_int_distribution<int> color_dist(0, 255);
