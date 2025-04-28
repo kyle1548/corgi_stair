@@ -13,6 +13,7 @@
 #include <pcl/filters/passthrough.h>
 #include <visualization_msgs/MarkerArray.h>
 #include <unordered_map>
+#include <random>
 
 typedef pcl::PointXYZRGB PointT;
 
@@ -52,7 +53,9 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     // Estimate normals
     pcl::PointCloud<pcl::Normal>::Ptr normals(new pcl::PointCloud<pcl::Normal>);
     pcl::IntegralImageNormalEstimation<PointT, pcl::Normal> ne;
-    ne.setNormalEstimationMethod(ne.AVERAGE_3D_GRADIENT);
+    // ne.setNormalEstimationMethod(ne.AVERAGE_3D_GRADIENT);
+    // ne.setNormalEstimationMethod(ne.AVERAGE_DEPTH_CHANGE);
+    ne.setNormalEstimationMethod(ne.COVARIANCE_MATRIX);
     ne.setMaxDepthChangeFactor(0.05f);
     ne.setNormalSmoothingSize(15.0f);
     ne.setInputCloud(cloud);
@@ -62,39 +65,67 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     pcl::OrganizedMultiPlaneSegmentation<PointT, pcl::Normal, pcl::Label> mps;
     mps.setMinInliers(50);
     mps.setAngularThreshold(0.017453 * 20.0); // 20 degrees in radians
-    mps.setDistanceThreshold(0.02);          // 2cm
+    mps.setDistanceThreshold(0.05);          // 2cm
     mps.setInputCloud(cloud);
     mps.setInputNormals(normals);
 
     std::vector<pcl::PlanarRegion<PointT>, Eigen::aligned_allocator<pcl::PlanarRegion<PointT>>> regions;
-    mps.segment(regions); // 原始版本僅需 regions，無需 refine
+    std::vector<pcl::ModelCoefficients> model_coefficients;
+    std::vector<pcl::PointIndices> inlier_indices;
+    pcl::PointCloud<pcl::Label>::Ptr labels(new pcl::PointCloud<pcl::Label>);
+    std::vector<pcl::PointIndices> label_indices;
+    std::vector<pcl::PointIndices> boundary_indices;
+    // mps.segment(regions); // 原始版本僅需 regions，無需 refine
+    // mps.segmentAndRefine(regions); // refine
+    mps.segmentAndRefine(regions, model_coefficients, inlier_indices, labels, label_indices, boundary_indices);
 
-    pcl::PointCloud<PointT>::Ptr all_planes(new pcl::PointCloud<PointT>);
-
-    for (size_t i = 0; i < regions.size(); ++i)
+    // 隨機顏色產生器
+    bool random_color = true;
+    std::mt19937 rng;
+    rng.seed(std::random_device()());
+    std::uniform_int_distribution<int> color_dist(0, 255);
+    // 複製原始點雲（要修改顏色）
+    pcl::PointCloud<PointT>::Ptr color_cloud(new pcl::PointCloud<PointT>(*cloud));
+    // 把每個平面的 inliers 上色
+    for (size_t i = 0; i < inlier_indices.size(); ++i)
     {
-        const pcl::PlanarRegion<PointT>& region = regions[i];
-        pcl::PointCloud<PointT> contour;
-        contour.points = region.getContour();
-        contour.width = contour.points.size();
-        contour.height = 1;
-        contour.is_dense = true;
+        uint8_t r = color_dist(rng);
+        uint8_t g = color_dist(rng);
+        uint8_t b = color_dist(rng);
 
-        *all_planes += contour; // 合併所有輪廓到一起
+        for (size_t j = 0; j < inlier_indices[i].indices.size(); ++j)
+        {
+            int idx = inlier_indices[i].indices[j];
+            color_cloud->points[idx].r = random_color? r: 255;
+            color_cloud->points[idx].g = random_color? g: 0;
+            color_cloud->points[idx].b = random_color? b: 0;
+        }
     }
 
+
+    // pcl::PointCloud<PointT>::Ptr all_planes(new pcl::PointCloud<PointT>);
+    // for (size_t i = 0; i < regions.size(); ++i)
+    // {
+    //     const pcl::PlanarRegion<PointT>& region = regions[i];
+    //     pcl::PointCloud<PointT> contour;
+    //     contour.points = region.getContour();
+    //     contour.width = contour.points.size();
+    //     contour.height = 1;
+    //     contour.is_dense = true;
+
+    //     *all_planes += contour; // 合併所有輪廓到一起
+    // }
+    // for (auto& point : all_planes->points) {
+    //     point.r = 255;
+    //     point.g = 0;
+    //     point.b = 0;
+    // }
 
     // 發布結果
-    for (auto& point : all_planes->points) {
-        point.r = 255;
-        point.g = 0;
-        point.b = 0;
-    }
     sensor_msgs::PointCloud2 output;
-    pcl::toROSMsg(*all_planes, output);
+    pcl::toROSMsg(*color_cloud, output);
     output.header = input->header;
     pub.publish(output);
-
 
 
     // 發布法線
@@ -111,9 +142,16 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     marker_template.color.g = 1.0;
     marker_template.color.b = 0.0;
     marker_template.color.a = 1.0;
+    marker_template.pose.orientation.x = 0.0;
+    marker_template.pose.orientation.y = 0.0;
+    marker_template.pose.orientation.z = 0.0;
+    marker_template.pose.orientation.w = 1.0;  // 這是必要的！不能為 0
+    marker_template.lifetime = ros::Duration(0.2);
+
+
 
     // 空間分格子平均
-    float grid_size = 0.2f;
+    float grid_size = 0.05f;
     std::unordered_map<std::tuple<int, int, int>, pcl::PointNormal, boost::hash<std::tuple<int, int, int>>> grid_map;
     for (size_t i = 0; i < cloud->size(); ++i) {
         const auto& pt = cloud->points[i];
