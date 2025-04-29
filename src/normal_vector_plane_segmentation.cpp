@@ -32,6 +32,13 @@ typedef pcl::PointXYZ PointT_no_color;
 ros::Publisher pub;
 ros::Publisher normal_pub;
 
+/* K-mean */
+struct Color
+{
+    uint8_t r, g, b;
+};
+
+
 struct NormalPoint
 {
     Eigen::Vector3f normal;
@@ -127,6 +134,9 @@ struct AvgNormal
     float z = 0;
     int count = 0;
 };
+
+
+
 
 
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
@@ -258,11 +268,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input)
     }
     
     // 2. 根據最大分量 (x/y/z) 給群指定顏色
-    struct Color
-    {
-        uint8_t r, g, b;
-    };
-    
+
     std::vector<Color> cluster_colors(k);
     
     for (int i = 0; i < k; ++i)
