@@ -49,7 +49,7 @@ struct NormalPoint {
 
 // 計算歐式距離平方
 float euclideanDistanceSquared(const Eigen::Vector3f& a, const Eigen::Vector3f& b) {
-
+    return 1 - a.dot(b);
     return (a - b).squaredNorm();
 }
 
@@ -305,6 +305,8 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
     int k = 3;
     // kmeansNormals(normal_points, k);
     Group2Normals(normal_points);
+    std::cout << "cluster_centroid0: " << cluster_centroids[0] << std::endl;
+    std::cout << "cluster_centroid1: " << cluster_centroids[1] << std::endl;
     // pcl::VoxelGrid<PointT> vg;
     // vg.setInputCloud(normal_clouds);
     // vg.setLeafSize(0.01f, 0.01f, 0.01f);  // 設定 voxel 的大小
