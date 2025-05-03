@@ -52,65 +52,53 @@ struct NormalPoint {
 };
 
 void ComputeClusterDirectionDistances(std::vector<NormalPoint>& points) {
-    const float bin_width = 0.01f;
+    const double bin_width = 0.01;
+    const int peak_threshold = 1000;
 
-    // 將每個點在對應群的 normal 方向做投影
-    for (auto& p : points) {
-        if (p.clusterID == -1 || p.clusterID >= cluster_centroids.size()) continue;
-        const Eigen::Vector3f& n = cluster_centroids[p.clusterID];
-        p.distance_proj = p.position.dot(n);  // 投影到 normal 上
-    }
+    const int num_clusters = cluster_centroids.size();
+    for (int c = 0; c < num_clusters; ++c) {
+        std::vector<double> distances;
 
-    // 分群：將每群的投影距離列出（你可以接下來用這些值再做 1D clustering）
-    std::unordered_map<int, std::vector<float>> cluster_distances;
-    for (const auto& p : points) {
-        if (p.clusterID >= 0)
-            cluster_distances[p.clusterID].push_back(p.distance_proj);
-    }
-
-    // 顯示每群的距離分布
-    for (const auto& [cid, distances] : cluster_distances) {
-        if (distances.empty()) continue;
-
-        // 計算動態範圍
-        float range_min = *std::min_element(distances.begin(), distances.end());
-        float range_max = *std::max_element(distances.begin(), distances.end());
-
-        if (range_max == range_min) {
-            std::cout << "Cluster " << cid << " has uniform values at " << range_min << "\n";
-            continue;
-        }
-
-        int num_bins = static_cast<int>((range_max - range_min) / bin_width) + 1;
-        std::vector<int> bins(num_bins, 0);
-
-        // 建立 histogram
-        for (float d : distances) {
-            int bin_idx = static_cast<int>((d - range_min) / bin_width);
-            if (bin_idx >= 0 && bin_idx < num_bins)
-                bins[bin_idx]++;
-        }
-
-        // 找最多點的 bin
-        int max_count = 0;
-        int max_bin_idx = -1;
-        for (int i = 0; i < num_bins; ++i) {
-            if (bins[i] > max_count) {
-                max_count = bins[i];
-                max_bin_idx = i;
+        // 收集 cluster c 的距離值
+        for (const auto& p : points) {
+            if (p.clusterID == c) {
+                double d = p.normal.dot(p.position);  // 投影距離
+                distances.push_back(d);
             }
         }
 
-        if (max_bin_idx >= 0) {
-            float bin_start = range_min + max_bin_idx * bin_width;
-            float bin_end = bin_start + bin_width;
-            std::cout << std::fixed << std::setprecision(2);
-            std::cout << "Cluster " << cid << " peak bin: ["
-                      << bin_start << ", " << bin_end << "] → "
-                      << max_count << " points\n";
-        } else {
-            std::cout << "Cluster " << cid << " has no valid bins.\n";
+        if (distances.empty()) continue;
+
+        // 計算距離的最小與最大
+        auto [min_it, max_it] = std::minmax_element(distances.begin(), distances.end());
+        double min_val = *min_it;
+        double max_val = *max_it;
+
+        int bin_count = static_cast<int>((max_val - min_val) / bin_width) + 1;
+        std::vector<int> histogram(bin_count, 0);
+
+        // 計算 histogram
+        for (double d : distances) {
+            int bin = static_cast<int>((d - min_val) / bin_width);
+            if (bin >= 0 && bin < bin_count)
+                histogram[bin]++;
         }
+
+        std::cout << "Cluster " << c << " histogram peaks:\n";
+
+        // 偵測峰值（局部最大）
+        for (int i = 1; i < bin_count - 1; ++i) {
+            if (histogram[i] > histogram[i - 1] &&
+                histogram[i] > histogram[i + 1] &&
+                histogram[i] > peak_threshold) {
+
+                float bin_start = min_val + i * bin_width;
+                float bin_end = bin_start + bin_width;
+                std::cout << "  Peak bin [" << bin_start << ", " << bin_end
+                          << "): Count = " << histogram[i] << "\n";
+            }
+        }
+        std::cout << std::endl;
     }
 }
 
