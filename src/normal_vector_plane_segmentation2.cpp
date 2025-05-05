@@ -45,6 +45,7 @@ struct NormalPoint {
     int clusterID = -1;
     double distance_proj = 0.0; // 投影距離
     int planeID = -1; // 平面ID
+    int u = -1, v = -1;
 };
 
 struct Range {
@@ -57,6 +58,7 @@ struct Range {
 /* Global variables */
 ros::Publisher pub;
 ros::Publisher normal_pub;
+ros::Publisher edge_pub;
 tf2_ros::Buffer tf_buffer_;
 tf2_ros::TransformListener* tf_listener_;
 std::vector<Eigen::Vector3f> cluster_centroids;
@@ -367,6 +369,8 @@ void group_by_normals(std::vector<NormalPoint>& points, int max_iter = 2) {
 
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
     could_seq = input->header.seq;
+    int width = cloud->width;
+
     /* Step 1: Convert the ROS PointCloud2 message to PCL point cloud */
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
     pcl::fromROSMsg(*input, *cloud);
@@ -454,7 +458,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
             Eigen::Vector3f normal_vec(n.normal_x, n.normal_y, n.normal_z);
             Eigen::Vector3f position_vec(cloud->points[i].x, cloud->points[i].y, cloud->points[i].z);
             normal_vec.normalize();
-            normal_points.push_back({position_vec, normal_vec, -1, 0.0, -1});
+            normal_points.push_back({position_vec, normal_vec, -1, 0.0, -1, i % width, i / width});
         }
     }
     // DBSCAN ds(2, 0.1*0.1, normal_points); // minimum number of cluster, distance for clustering(metre^2), points
@@ -468,6 +472,72 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
     std::array<std::vector<Range>, 2> plane_ranges = group_by_plane_distance(normal_points);
     global_range[0] = plane_ranges[0];
     global_range[1] = plane_ranges[1];
+
+    if (plane_ranges[1].size() >= 1) {
+        std::unordered_map<int, NormalPoint> row_max_z_map;
+
+        double mean_d = plane_ranges[1][0].mean_distance;
+        double lower = mean_d - 0.01;
+        double upper = mean_d + 0.01;
+    
+        for (const auto& p : normal_points) {
+            if (p.distance_proj >= lower && p.distance_proj <= upper) {
+                int v = p.v;  // image row
+                // 若該 row 尚未記錄，或 z 值更大，就更新
+                if (row_max_z_map.find(v) == row_max_z_map.end() ||
+                    p.position.z() > row_max_z_map[v].position.z()) {
+                    row_max_z_map[v] = p;
+                }
+            }
+        }
+
+        std::vector<Eigen::Vector3f> stair_edge_points;
+        for (const auto& [v, p] : row_max_z_map) {
+            stair_edge_points.push_back(p.position);
+        }
+
+        pcl::PointCloud<PointT>::Ptr edge_cloud(new pcl::PointCloud<PointT>);
+        for (const auto& pt : stair_edge_points) {
+            edge_cloud->points.emplace_back(pt.x(), pt.y(), pt.z());
+        }
+        edge_cloud->width = edge_cloud->points.size();
+        edge_cloud->height = 1;
+        edge_cloud->is_dense = true;
+
+        pcl::ModelCoefficients::Ptr line_coeff(new pcl::ModelCoefficients);
+        pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+
+        pcl::SACSegmentation<PointT> seg;
+        seg.setOptimizeCoefficients(true);
+        seg.setModelType(pcl::SACMODEL_LINE);
+        seg.setMethodType(pcl::SAC_RANSAC);
+        seg.setDistanceThreshold(0.001); // 可調整
+        seg.setInputCloud(edge_cloud);
+        seg.segment(*inliers, *line_coeff);
+
+        for (size_t i = 0; i < edge_cloud->points.size(); ++i) {
+            edge_cloud->points[i].r = 255; 
+            edge_cloud->points[i].g = 255;
+            edge_cloud->points[i].b = 0;
+        }
+        
+        // // 2. 把 inliers 點設為黃色
+        // for (int idx : inliers->indices) {
+        //     edge_cloud->points[idx].r = 255;
+        //     edge_cloud->points[idx].g = 255;
+        //     edge_cloud->points[idx].b = 0;
+        // }
+
+        /* Publish the result */
+        sensor_msgs::PointCloud2 output;
+        pcl::toROSMsg(*edge_cloud, output);
+        output.header = input->header;
+        output.header.frame_id = "map";
+        edge_pub.publish(output);
+    }
+
+
+
     // pcl::VoxelGrid<PointT> vg;
     // vg.setInputCloud(normal_clouds);
     // vg.setLeafSize(0.01f, 0.01f, 0.01f);  // 設定 voxel 的大小
@@ -676,6 +746,7 @@ int main(int argc, char** argv) {
     ros::Subscriber trigger_sub = nh.subscribe<corgi_msgs::TriggerStamped>("trigger", 1, trigger_cb);
     pub = nh.advertise<sensor_msgs::PointCloud2>("plane_segmentation", 1);
     normal_pub = nh.advertise<visualization_msgs::MarkerArray>("visualization_normals", 1);
+    edge_pub = nh.advertise<sensor_msgs::PointCloud2>("visualization_edge", 1);
     tf_listener_ = new tf2_ros::TransformListener(tf_buffer_);
 
     ros::Rate rate(10);
