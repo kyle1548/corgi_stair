@@ -369,7 +369,6 @@ void group_by_normals(std::vector<NormalPoint>& points, int max_iter = 2) {
 
 void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
     could_seq = input->header.seq;
-    int width = cloud->width;
 
     /* Step 1: Convert the ROS PointCloud2 message to PCL point cloud */
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>);
@@ -458,7 +457,7 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
             Eigen::Vector3f normal_vec(n.normal_x, n.normal_y, n.normal_z);
             Eigen::Vector3f position_vec(cloud->points[i].x, cloud->points[i].y, cloud->points[i].z);
             normal_vec.normalize();
-            normal_points.push_back({position_vec, normal_vec, -1, 0.0, -1, i % width, i / width});
+            normal_points.push_back({position_vec, normal_vec, -1, 0.0, -1, i % cloud->width, i / cloud->width});
         }
     }
     // DBSCAN ds(2, 0.1*0.1, normal_points); // minimum number of cluster, distance for clustering(metre^2), points
@@ -477,16 +476,18 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
         std::unordered_map<int, NormalPoint> row_max_z_map;
 
         double mean_d = plane_ranges[1][0].mean_distance;
-        double lower = mean_d - 0.01;
-        double upper = mean_d + 0.01;
+        double lower = mean_d - 0.05;
+        double upper = mean_d + 0.05;
     
         for (const auto& p : normal_points) {
-            if (p.distance_proj >= lower && p.distance_proj <= upper) {
-                int v = p.v;  // image row
+            double distance = cluster_centroids[1].dot(p.position);
+            if (distance >= lower && distance <= upper) {
+                int u = p.u;  // image column
                 // 若該 row 尚未記錄，或 z 值更大，就更新
                 if (row_max_z_map.find(v) == row_max_z_map.end() ||
                     p.position.z() > row_max_z_map[v].position.z()) {
-                    row_max_z_map[v] = p;
+                    if (p.position.z() > 0.05)
+                        row_max_z_map[v] = p;
                 }
             }
         }
@@ -498,7 +499,14 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
 
         pcl::PointCloud<PointT>::Ptr edge_cloud(new pcl::PointCloud<PointT>);
         for (const auto& pt : stair_edge_points) {
-            edge_cloud->points.emplace_back(pt.x(), pt.y(), pt.z());
+            PointT p;
+            p.x = pt.x();
+            p.y = pt.y();
+            p.z = pt.z();
+            p.r = 255;
+            p.g = 255;
+            p.b = 0;
+            edge_cloud->points.emplace_back(p);
         }
         edge_cloud->width = edge_cloud->points.size();
         edge_cloud->height = 1;
