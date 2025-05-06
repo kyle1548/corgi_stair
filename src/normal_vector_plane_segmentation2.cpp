@@ -141,7 +141,6 @@ std::array<std::vector<Range>, 2> group_by_plane_distance(std::vector<NormalPoin
                     in_range = true;
                     current.start = min_val + i * bin_width;
                     current.total_count = histogram[i];
-                    current.planeID++;
                     current_values = bin_values[i];
                 } else {
                     current.total_count += histogram[i];
@@ -206,9 +205,10 @@ std::array<std::vector<Range>, 2> group_by_plane_distance(std::vector<NormalPoin
         // 分配 planeID 給每個點
         for (auto& p : points) {
             if (p.clusterID != c) continue;
-            for (const auto& range : final_ranges) {
+            for (auto& range : final_ranges) {
                 if (p.distance_proj >= range.start && p.distance_proj <= range.end) {
                     p.planeID = distance_to_planeID[range.mean_distance];
+                    range.planeID = p.planeID;
                     break;
                 }
             }
@@ -482,65 +482,89 @@ void cloudCallback(const sensor_msgs::PointCloud2ConstPtr& input) {
 
     // Ground plane by ransac
     pcl::PointCloud<PointT_no_color>::Ptr ground_plane_cloud(new pcl::PointCloud<PointT_no_color>);
-    for (const auto& np : normal_points) {
+    std::vector<int> plane_cloud_to_np_index;
+    for (size_t i = 0; i < normal_points.size(); ++i) {
+        auto& np = normal_points[i];
         if (np.clusterID==0 && np.planeID==0) {
             PointT_no_color pt;
             pt.x = np.position.x();
             pt.y = np.position.y();
             pt.z = np.position.z();
             ground_plane_cloud->points.push_back(pt);
+            np.valid = false;
+            plane_cloud_to_np_index.push_back(i);
         }
     }
-    pcl::SACSegmentation<pcl::PointNormal> seg;
-    seg.setOptimizeCoefficients(true);
+
+    pcl::SACSegmentation<PointT_no_color> ground_seg;
+    pcl::ModelCoefficients::Ptr plane_coefficients(new pcl::ModelCoefficients);
+    pcl::PointIndices::Ptr plane_inliers(new pcl::PointIndices);
+    ground_seg.setOptimizeCoefficients(true);
     // seg.setModelType(pcl::SACMODEL_NORMAL_PLANE);
-    seg.setModelType(pcl::SACMODEL_PLANE);
-    seg.setMethodType(pcl::SAC_RANSAC);
-    seg.setDistanceThreshold(0.001);
-    // seg.setEpsAngle(10.0 * M_PI / 180.0); // 允許最大10度的偏差
-    // seg.setInputNormals(ground_plane_cloud);
-    seg.setInputCloud(ground_plane_cloud);
-    seg.segment(*inliers, *coefficients);
-    Eigen::Vector3f ground_normal_vector(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
-    double ground_d = coefficients->values[3];
+    ground_seg.setModelType(pcl::SACMODEL_PLANE);
+    ground_seg.setMethodType(pcl::SAC_RANSAC);
+    ground_seg.setDistanceThreshold(0.01);
+    // ground_seg.setEpsAngle(10.0 * M_PI / 180.0); // 允許最大10度的偏差
+    // ground_seg.setInputNormals(ground_plane_cloud);
+    ground_seg.setInputCloud(ground_plane_cloud);
+    ground_seg.segment(*plane_inliers, *plane_coefficients);
+    Eigen::Vector3f ground_normal_vector(plane_coefficients->values[0], plane_coefficients->values[1], plane_coefficients->values[2]);
+    double ground_d = -plane_coefficients->values[3];
     if (ground_normal_vector.z() < 0) {
         ground_normal_vector = -ground_normal_vector;
         ground_d = -ground_d;
     }
+    for (const auto& idx_in_plane_cloud : plane_inliers->indices) {
+        int idx_in_normal_points = plane_cloud_to_np_index[idx_in_plane_cloud];
+        normal_points[idx_in_normal_points].valid = true;
+    }
+    std::cout << "ground_normal_vector: \n" << ground_normal_vector << std::endl;
+    std::cout << "ground_d: " << ground_d << std::endl;
 
     /* Edge */
     std::vector<double> avg_height;
     for (const auto& range : plane_ranges[1]) {
         // Put points in each plane into pcl cloud
         pcl::PointCloud<PointT_no_color>::Ptr plane_cloud(new pcl::PointCloud<PointT_no_color>);
-        for (const auto& np : normal_points) {
+        std::vector<int> plane_cloud_to_np_index;
+        for (size_t i = 0; i < normal_points.size(); ++i) {
+            auto& np = normal_points[i];
             if (np.clusterID==range.clusterID && np.planeID==range.planeID) {
                 PointT_no_color pt;
                 pt.x = np.position.x();
                 pt.y = np.position.y();
                 pt.z = np.position.z();
                 plane_cloud->points.push_back(pt);
+                np.valid = false;
+                plane_cloud_to_np_index.push_back(i);
             }
         }
-        pcl::SACSegmentation<pcl::PointNormal> seg;
-        seg.setOptimizeCoefficients(true);
-        // seg.setModelType(pcl::SACMODEL_NORMAL_PLANE);
-        seg.setModelType(pcl::SACMODEL_PLANE);
-        seg.setMethodType(pcl::SAC_RANSAC);
-        seg.setDistanceThreshold(0.001);
-        // seg.setEpsAngle(10.0 * M_PI / 180.0); // 允許最大10度的偏差
-        // seg.setInputNormals(plane_cloud);
-        seg.setInputCloud(plane_cloud);
-        seg.segment(*inliers, *coefficients);
-        Eigen::Vector3f normal_vector(coefficients->values[0], coefficients->values[1], coefficients->values[2]);
+        pcl::SACSegmentation<PointT_no_color> plane_seg;
+        plane_seg.setOptimizeCoefficients(true);
+        // plane_seg.setModelType(pcl::SACMODEL_NORMAL_PLANE);
+        plane_seg.setModelType(pcl::SACMODEL_PLANE);
+        plane_seg.setMethodType(pcl::SAC_RANSAC);
+        plane_seg.setDistanceThreshold(0.01);
+        // plane_seg.setEpsAngle(10.0 * M_PI / 180.0); // 允許最大10度的偏差
+        // plane_seg.setInputNormals(plane_cloud);
+        plane_seg.setInputCloud(plane_cloud);
+        plane_seg.segment(*plane_inliers, *plane_coefficients);
+        Eigen::Vector3f normal_vector(plane_coefficients->values[0], plane_coefficients->values[1], plane_coefficients->values[2]);
+        for (const auto& idx_in_plane_cloud : plane_inliers->indices) {
+            int idx_in_normal_points = plane_cloud_to_np_index[idx_in_plane_cloud];
+            normal_points[idx_in_normal_points].valid = true;
+        }
 
         std::unordered_map<int, NormalPoint> row_max_z_map;
 
         // double mean_d = range.mean_distance;
-        double mean_d = coefficients->values[3];
+        double mean_d = -plane_coefficients->values[3];
         double lower = mean_d - 0.03;
         double upper = mean_d + 0.03;
     
+        std::cout << "normal_vector: \n" << normal_vector << std::endl;
+        std::cout << "mean_d: " << mean_d << std::endl;
+
         for (const auto& p : normal_points) {
             // double distance = cluster_centroids[1].dot(p.position);
             double distance = normal_vector.dot(p.position);
