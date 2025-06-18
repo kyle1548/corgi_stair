@@ -95,7 +95,7 @@ std::array<std::array<double, 4>, 2> StairClimb::step() {
     switch (this->state) {
         case MOVE_STABLE:
             if (last_state != state) {
-                swing_leg = swing_count % 4;
+                swing_leg = swing_sequence[swing_count % 4];
                 if (swing_leg >= 2 && leg_info[swing_leg].next_up && !leg_info[other_side_leg[swing_leg][0]].one_step) {
                     swing_count++;
                 }
@@ -1020,7 +1020,7 @@ bool StairClimb::determine_next_foothold() {
                     //     leg_info[swing_leg].next_foothold = {next_max_foothold_x, current_stair_edge[1]};
                     // }//end if else
                     leg_info[swing_leg].next_foothold = {min_deepest_x, current_stair_edge[1]};
-                    if (leg_info[swing_leg].next_foothold[0] >= stair_edge[swing_leg][0].edge[0]+min_foothold_distance) {
+                    if (leg_info[swing_leg].next_foothold[0] >= stair_edge[swing_leg][0].edge[0]+keep_edge_d+min_foothold_distance) {
                         leg_info[swing_leg].one_step = true;
                     }
                 } else {    // hind leg: no change first swing leg
