@@ -727,11 +727,6 @@ bool StairClimb::swing_next_step() {  // return true if finish swinging, false i
     CoM[0] += velocity[0] / rate;
     CoM[1] += velocity[1] / rate;
     /* Calculate pitch */
-    // if (swing_leg == 0 || swing_leg == 1) {
-    //     pitch = std::asin((CoM[1]-hind_height) / (BL/2));
-    // } else {
-    //     pitch = std::asin((front_height-CoM[1]) / (BL/2));
-    // }//end if else
     double CoM_up_ratio = final_CoM[1]==init_CoM[1]? 0 : (CoM[1] - init_CoM[1]) / (final_CoM[1] - init_CoM[1]);
     double current_front_height = init_front_height + CoM_up_ratio*(front_height - init_front_height);
     double current_hind_height  = init_hind_height  + CoM_up_ratio*(hind_height - init_hind_height);
@@ -888,7 +883,7 @@ std::array<double, 2> StairClimb::move_consider_edge(int leg_ID, std::array<doub
         if (hip[leg_ID][0] + leg_model.U_r[0] > current_stair_edge[0]) {
             // if (theta[leg_ID]*180/M_PI < 17.1 && move_vec[1]==0.0) {    // wheel mode
             if (wheel_mode[leg_ID]) {    // wheel mode
-                result_eta[0] = theta[leg_ID];
+                result_eta[0] = 17.0/180.0*M_PI;
                 result_eta[1] = beta[leg_ID] - move_vec[0]/leg_model.radius;
                 relative_foothold = {0.0, -leg_model.radius};
             } else {    // upper rim 
