@@ -22,4 +22,3 @@ class LegInfo {
 };//end class LegInfo
 
 #endif // LEGINFO_HPP
-
